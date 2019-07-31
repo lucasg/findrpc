@@ -22,6 +22,8 @@ if idaapi.IDA_SDK_VERSION >= 700:
 else:
     pass
 
+
+
 # we can't use ctypes.c_voidp since it rely on Python engine's arch, not the curent PE arch.
 POINTER = ( ctypes.c_uint32, ctypes.c_uint64 )[idaapi.get_inf_structure().is_64bit()]
 POINTER_SIZE = ctypes.sizeof(POINTER)
@@ -657,7 +659,7 @@ class CancelTypingForm(Form):
 
     Hey, this guy wants to cancel its changes.
     'Might as well ask for an "undo" button in IDA !
-
+    (This joke got stale with IDA 7.3 -_-)
     """
 
     def __init__(self):
@@ -670,9 +672,10 @@ class RpcResultsModel(QtCore.QAbstractTableModel):
     COL_RPC_TYPE = 0x01
     COL_ADDRESS = 0x02
     COL_DESCRIPTION = 0x03
+    COL_EMPTY = 0x04
 
     SAMPLE_CONTENTS = [
-        'XXXXXXXX-YYYY-ZZZZ-TTTTTTTTTTTTTTTT',
+        'XXXXXXXX-YYYY-ZZZZ-TTTTTTTTTT',
         'MIDL_STUBLESS_PROXY_INFO',
         '0xcafebabe',
         'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -777,7 +780,12 @@ class RpcResultsModel(QtCore.QAbstractTableModel):
         # text alignment request
         elif role == QtCore.Qt.TextAlignmentRole:
             column = index.column()
-            return (QtCore.Qt.AlignLeft, QtCore.Qt.AlignLeft, QtCore.Qt.AlignHCenter, QtCore.Qt.AlignLeft)[column]
+            return (
+                QtCore.Qt.AlignLeft, 
+                QtCore.Qt.AlignLeft, 
+                QtCore.Qt.AlignHCenter, 
+                QtCore.Qt.AlignLeft
+            )[column]
 
         # unhandeled request, nothing to do
         return None
@@ -831,9 +839,7 @@ class RpcResultsForm( idaapi.PluginForm ):
         self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
 
         # set the initial column widths for the table
-        for i in xrange(len(RpcResultsModel.SAMPLE_CONTENTS)):
-            rect = self._font_metrics.boundingRect(RpcResultsModel.SAMPLE_CONTENTS[i])
-            self._table.setColumnWidth(i, rect.width())
+        self.guess_column_width()
 
         # table selection should be by row, not by cell
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -851,6 +857,8 @@ class RpcResultsForm( idaapi.PluginForm ):
 
         # Allow multiline cells
         self._table.setWordWrap(True) 
+        self._table.setTextElideMode(QtCore.Qt.ElideMiddle);
+        self._table.resizeColumnsToContents()
         self._table.resizeRowsToContents()
 
         layout = QtWidgets.QGridLayout()
@@ -862,7 +870,18 @@ class RpcResultsForm( idaapi.PluginForm ):
         Make the created form visible as a tabbed view.
         """
         flags = idaapi.PluginForm.WOPN_TAB | idaapi.PluginForm.WOPN_PERSIST 
-        return idaapi.PluginForm.Show(self, "findrpc results", flags)
+        return idaapi.PluginForm.Show(self, "detected rpc strcutures", flags)
+
+    def guess_column_width(self):
+        """
+        Initial column redimensionning based on "hints" (sample values)
+        """
+
+        for i in xrange(len(self._model.__class__.SAMPLE_CONTENTS)):
+            sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
+            header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
+
+            self._table.setColumnWidth(i, max(header_width, sample_width))
 
     def _ui_entry_double_click(self, index):
         """
@@ -969,6 +988,239 @@ class RpcResultsForm( idaapi.PluginForm ):
                     idc.MakeName(proc_handler_ea, chosen_name)
 
 
+class FindRpcResultsModel(QtCore.QAbstractTableModel):
+    
+    COL_SYNTAX_GUID = 0x00
+    COL_RPC_TYPE = 0x01
+    COL_DISPATCH_TABLE = 0x02
+    COL_PROC_HANDLERS = 0x03
+    COL_ADDITIONAL_INFOS = 0x04
+
+    SAMPLE_CONTENTS = [
+        'XXXXXXXX-YYYY-ZZZZ-TTTTTTTTTT',
+        'server',
+        '0xcafebabe',
+        '0xcafebabe',
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+    ]
+
+    def __init__(self, rpc_results, parent=None):
+        super(FindRpcResultsModel, self).__init__(parent)
+
+        #----------------------------------------------------------------------
+        # Headers
+        #----------------------------------------------------------------------
+        self._column_headers = {
+            FindRpcResultsModel.COL_SYNTAX_GUID : 'GUID',
+            FindRpcResultsModel.COL_RPC_TYPE : 'client/server',
+            FindRpcResultsModel.COL_DISPATCH_TABLE : 'Dispatch Table Address',
+            FindRpcResultsModel.COL_PROC_HANDLERS : 'Proc Handlers',
+            FindRpcResultsModel.COL_ADDITIONAL_INFOS : 'Additionnal infos'
+        }
+
+        #----------------------------------------------------------------------
+        # UI
+        #----------------------------------------------------------------------
+        self._font = QtGui.QFont("Monospace")
+        self._font.setStyleHint(QtGui.QFont.TypeWriter)
+
+        #----------------------------------------------------------------------
+        # Data store
+        #----------------------------------------------------------------------
+        self._results = list(rpc_results)
+        self._row_count = len(self._results)
+
+    def flags(self, index):
+        return QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable
+
+    def rowCount(self, index=QtCore.QModelIndex()):
+        """
+        The number of table rows.
+        """
+        return self._row_count
+
+    def columnCount(self, index=QtCore.QModelIndex()):
+        """
+        The number of table columns.
+        """
+        return len(self._column_headers)
+
+    def headerData(self, column, orientation, role=QtCore.Qt.DisplayRole):
+        """
+        Define the properties of the the table rows & columns.
+        """
+
+        if orientation == QtCore.Qt.Horizontal:
+
+            # the title of the header columns has been requested
+            if role == QtCore.Qt.DisplayRole:
+                try:
+                    return self._column_headers[column]
+                except KeyError as e:
+                    pass
+
+            # the text alignment of the header has beeen requested
+            elif role == QtCore.Qt.TextAlignmentRole:
+
+                # center align all columns
+                return QtCore.Qt.AlignHCenter
+
+        # unhandled header request
+        return None
+
+    def data(self, index, role=QtCore.Qt.DisplayRole):
+        """
+        Define how Qt should access the underlying model data.
+        """
+
+        # data display request
+        if role == QtCore.Qt.DisplayRole:
+
+            # grab for speed
+            row = index.row()
+            column = index.column()
+
+            findrpc_result = self._results[row]
+
+            if column == FindRpcResultsModel.COL_SYNTAX_GUID:
+                return str(findrpc_result.get_syntax_guid())
+            elif column == FindRpcResultsModel.COL_RPC_TYPE:
+                return ("server", "client")[findrpc_result.is_client()]
+            elif column == FindRpcResultsModel.COL_DISPATCH_TABLE:
+                
+                if not findrpc_result.get_proc_handlers_table_ea():
+                    return "None"
+                return "0x%x" % findrpc_result.get_proc_handlers_table_ea()
+            elif column == FindRpcResultsModel.COL_PROC_HANDLERS:
+
+                proc_handlers = findrpc_result.get_proc_handlers()
+                if not proc_handlers:
+                    return "None"
+
+                str_proc_handlers = [ "-0x%x" % ea for ea in proc_handlers ]
+                return "\n".join(str_proc_handlers)
+
+            elif column == FindRpcResultsModel.COL_ADDITIONAL_INFOS:
+                return str(self._results[row])
+
+        # font color request
+        elif role == QtCore.Qt.ForegroundRole:
+            return QtGui.QColor(QtCore.Qt.black)
+
+        # font format request
+        elif role == QtCore.Qt.FontRole:
+            return self._font
+
+        # text alignment request
+        elif role == QtCore.Qt.TextAlignmentRole:
+            column = index.column()
+            return (QtCore.Qt.AlignLeft, QtCore.Qt.AlignHCenter, QtCore.Qt.AlignHCenter, QtCore.Qt.AlignHCenter,QtCore.Qt.AlignLeft)[column]
+
+        # unhandeled request, nothing to do
+        return None
+
+class FindRpcResultsForm( idaapi.PluginForm ):
+
+    def __init__(self, rpc_results):
+
+        super(FindRpcResultsForm, self).__init__()
+        self.rpc_results = rpc_results
+        self._widget = None
+    
+    def OnCreate(self, form):
+        """
+        Initialize the custom PyQt5 content on form creation.
+        """
+
+        # Get parent widget
+        self._widget = self.FormToPyQtWidget(form)
+
+        self._init_ui()
+
+    def show(self):
+        """
+        Make the created form visible as a tabbed view.
+        """
+        flags = idaapi.PluginForm.WOPN_TAB | idaapi.PluginForm.WOPN_PERSIST 
+        return idaapi.PluginForm.Show(self, "FindRpc results", flags)
+        
+
+    def _init_ui(self):
+
+        if not self.GetWidget():
+            return
+
+        self._font = QtGui.QFont("Monospace")
+        self._font.setStyleHint(QtGui.QFont.TypeWriter)
+        self._font_metrics = QtGui.QFontMetricsF(self._font)
+
+        self._model = FindRpcResultsModel(self.rpc_results, self._widget)
+        self._table = QtWidgets.QTableView()
+        self._table.setStyleSheet(
+            "QTableView { gridline-color: white; background-color: white } "  +
+            "QTableView::item:selected { color: grey; background-color: lightblue; } "
+        )
+
+        # set these properties so the user can arbitrarily shrink the table
+        self._table.setMinimumHeight(0)
+        self._table.setSizePolicy(
+            QtWidgets.QSizePolicy.Ignored,
+            QtWidgets.QSizePolicy.Ignored
+        )
+
+        self._table.setModel(self._model)
+
+
+        # # jump to disassembly on table row double click
+        # self._table.doubleClicked.connect(self._ui_entry_double_click)
+
+        # # right click popup menu
+        # self._table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # self._table.customContextMenuRequested.connect(self._ui_ctx_menu_handler)
+
+        # self._action_apply_type = QtWidgets.QAction("Apply type", None)
+        # self._action_clear_type = QtWidgets.QAction("Clear applied type", None)
+        # self._action_rename_struct = QtWidgets.QAction("Renamed applied type", None)
+        # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
+
+        # set the initial column widths for the table
+        self.guess_column_width()
+
+        # table selection should be by row, not by cell
+        self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+
+        # more code-friendly, readable aliases
+        vh = self._table.verticalHeader()
+        hh = self._table.horizontalHeader()
+        vh.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+
+        # hide the vertical header themselves as we don't need them
+        vh.hide()
+
+        # stretch the last column (which is blank)
+        hh.setStretchLastSection(True)
+
+        # Allow multiline cells
+        self._table.setWordWrap(True) 
+        self._table.setTextElideMode(QtCore.Qt.ElideMiddle);
+        self._table.resizeColumnsToContents()
+        self._table.resizeRowsToContents()
+
+        layout = QtWidgets.QGridLayout()
+        layout.addWidget(self._table)
+        self._widget.setLayout(layout)
+
+
+    def guess_column_width(self):
+        """
+        Initial column redimensionning based on "hints" (sample values)
+        """
+
+        for i in xrange(len(self._model.__class__.SAMPLE_CONTENTS)):
+            sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
+            header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
+
+            self._table.setColumnWidth(i, max(header_width, sample_width))
 
 #################################
 ## search functions
@@ -1037,10 +1289,10 @@ class FindRpcResult(object):
 
         return self._is_client
 
-    def get_proc_handlers_ea(self):
+    def get_proc_handlers_table_ea(self):
         """ 
         If the detected rpc server has a dispatch table, get_proc_handlers_ea
-        returns the addresses of the array storing the procedure handlers.
+        returns the address where the proc handlers table is located
         """
 
         if not self.interface.object.DispatchTable or not self.dispatch_table:
@@ -1048,9 +1300,6 @@ class FindRpcResult(object):
 
         if not self.dispatch_table.object.DispatchTableCount:
             return None
-
-        proc_handlers_count = self.dispatch_table.object.DispatchTableCount
-        proc_handlers = [[]]*proc_handlers_count
 
         if self.interpreter.type == TYPE_MIDL_SERVER_INFO:
             proc_handlers_address = self.interpreter.object.DispatchTable
@@ -1061,8 +1310,24 @@ class FindRpcResult(object):
         else:
             return None
 
+        
+
+        return proc_handlers_address
+
+    def get_proc_handlers_ea(self):
+        """ 
+        If the detected rpc server has a dispatch table, get_proc_handlers_ea
+        returns the addresses of the array storing the procedure handlers.
+        """
+
+        proc_handlers_address = self.get_proc_handlers_table_ea()
+
         if not proc_handlers_address:
             return None
+        
+        # since get_proc_handlers_table_ea succeed, it means DispatchTableCount > 0
+        proc_handlers_count = self.dispatch_table.object.DispatchTableCount
+        proc_handlers = [[]]*proc_handlers_count
 
         return [ proc_handlers_address + ph_ea*POINTER_SIZE for ph_ea in range(0, proc_handlers_count)]
 
@@ -1587,31 +1852,40 @@ def preload_standard_rpc_structures():
     Til2Idb(-1, TYPE_RPC_DISPATCH_TABLE)
 
 
+def check_isa_is_intel():
+    return idaapi.ph_get_id() == idaapi.PLFM_386
 
+def check_binary_is_pe():
+    # Seriously, this is how someone test if the currently loaded binary is a PE file ?
+    # How about making a enum, and a `idainfo.get_filetype()` function ?
+    return idc.get_inf_attr(idc.INF_FILETYPE) == idc.FT_PE
 
 def main():
-
     preload_standard_rpc_structures()
 
     # Don't bother searching for RPC features in non-x86 non-PE files
-    if idaapi.ph_get_id() != idaapi.PLFM_386:
+    if not check_isa_is_intel() or not check_binary_is_pe():
         return
 
-    # Seriously, this is how someone test if the currently loaded binary is a PE file ?
-    # How about making a enum, and a `idainfo.get_filetype()` function ?
-    if idc.get_inf_attr(idc.INF_FILETYPE) != idc.FT_PE:
-        return
 
     print("=======================================")
     print("[findrpc] RPC structures search :")
-    fa = FindRpc()
-    detected_rpc_structs = list(fa.search_rpc_structures())
-    rrf = RpcResultsForm(detected_rpc_structs)
-    rrf.show()
+    fr = FindRpc()
+    detected_rpc_structs = list(fr.search_rpc_structures())
     print("=======================================")
 
-    fa.c_export_result(fa.results[0], os.path.dirname(__file__), "test_d3d10_rasterizer_server")
-    fa.c_export_result(fa.results[1], os.path.dirname(__file__), "test_d3d10_rasterizer_client")
+        
+    # Show results
+    rpc_detected_struct_form = RpcResultsForm(detected_rpc_structs)
+    rpc_results_form = FindRpcResultsForm(fr.results)
+
+    rpc_detected_struct_form.show()
+    rpc_results_form.show()
+
+
+
+
 
 if __name__ == '__main__':
+
     main()
