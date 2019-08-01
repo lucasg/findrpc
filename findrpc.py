@@ -1129,10 +1129,12 @@ class FindRpcResultsModel(QtCore.QAbstractTableModel):
 
 class FindRpcResultsForm( idaapi.PluginForm ):
 
-    def __init__(self, rpc_results):
+    def __init__(self, rpc_results_db):
 
         super(FindRpcResultsForm, self).__init__()
-        self.rpc_results = rpc_results
+        
+        self.rpc_results_db = rpc_results_db
+        self.rpc_results = rpc_results_db.results
         self._widget = None
     
     def OnCreate(self, form):
@@ -1182,11 +1184,11 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         # # jump to disassembly on table row double click
         # self._table.doubleClicked.connect(self._ui_entry_double_click)
 
-        # # right click popup menu
-        # self._table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-        # self._table.customContextMenuRequested.connect(self._ui_ctx_menu_handler)
+        # right click popup menu
+        self._table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._ui_ctx_menu_handler)
 
-        # self._action_apply_type = QtWidgets.QAction("Apply type", None)
+        self._action_generate_stub = QtWidgets.QAction("Generate stub", None)
         # self._action_clear_type = QtWidgets.QAction("Clear applied type", None)
         # self._action_rename_struct = QtWidgets.QAction("Renamed applied type", None)
         # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
@@ -1230,8 +1232,140 @@ class FindRpcResultsForm( idaapi.PluginForm ):
 
             self._table.setColumnWidth(i, max(header_width, sample_width))
 
+
+    def _ui_ctx_menu_handler(self, position):
+        """
+        Handle right click context menu event on the coverage table.
+        """
+
+        # create a right click menu based on the state and context
+        ctx_menu = self._populate_ctx_menu()
+        if not ctx_menu:
+            return
+
+        # show the popup menu to the user, and wait for their selection
+        action = ctx_menu.exec_(self._table.viewport().mapToGlobal(position))
+
+        # process the user action
+        self._process_ctx_menu_action(action)
+
+    def _populate_ctx_menu(self):
+        """
+        Populate a context menu for the table view based on selection.
+        Returns a populated QMenu, or None.
+        """
+
+        # get the list rows currently selected in the coverage table
+        selected_rows = self._table.selectionModel().selectedRows()
+        if len(selected_rows) == 0:
+            return None
+
+        # the context menu we will dynamically populate
+        ctx_menu = QtWidgets.QMenu()
+
+    
+        ctx_menu.addAction(self._action_generate_stub)
+        ctx_menu.addSeparator()
+
+        # return the completed context menu
+        return ctx_menu
+
+    def _process_ctx_menu_action(self, action):
+        """
+        Process the given (user selected) context menu action.
+        """
+
+        # a right click menu action was not clicked. nothing else to do
+        if not action:
+            return
+
+        # get the list rows currently selected in the coverage table
+        selected_rows = self._table.selectionModel().selectedRows()
+        if len(selected_rows) == 0:
+            return
+
+        for row in selected_rows:
+            row_n = row.row()
+            result = self._model._results[row_n]
+            
+            file_basename, file_ext = os.path.splitext(idaapi.get_root_filename())
+            directory = os.path.dirname(idaapi.get_input_file_path())
+
+            file_basename = idc.AskStr("%s_%s" % (file_basename, result.IID), '[1/2] Enter stub name:')
+            directory = idc.AskStr(directory, '[2/2] Enter export directory:')
+
+            if action == self._action_generate_stub:
+                success = result.gen_c_struct(
+                    directory,
+                    file_basename,
+                    self.rpc_results_db
+                )
+                # def gen_c_struct(self, folder, filename, fa, bytes_read = 0x100):
+                
+
 #################################
-## search functions
+## Results classes
+
+RPC_HEADER_PLACEHOLDER = """
+/* this ALWAYS GENERATED file contains the definitions for the interfaces */
+
+
+/* File created by findrpc.py */
+
+
+#pragma warning( disable: 4049 )  /* more than 64k source lines */
+
+
+/* verify that the <rpcndr.h> version is high enough to compile this file*/
+#ifndef __REQUIRED_RPCNDR_H_VERSION__
+#define __REQUIRED_RPCNDR_H_VERSION__ 475
+#endif
+
+#include "rpc.h"
+#include "rpcndr.h"
+
+#ifndef __RPCNDR_H_VERSION__
+#error this stub requires an updated version of <rpcndr.h>
+#endif /* __RPCNDR_H_VERSION__ */
+
+
+#ifndef __{name:s}_h__
+#define __{name:s}_h__
+
+#if defined(_MSC_VER) && (_MSC_VER >= 1020)
+#pragma once
+#endif
+
+/* Forward Declarations */ 
+
+#ifdef __cplusplus
+extern "C"{{
+#endif 
+
+
+#ifndef __{name:s}_INTERFACE_DEFINED__
+#define __{name:s}_INTERFACE_DEFINED__
+
+/* interface {name:s} */
+/* FindRpc does not decode NDR streams, so you need to be figure out the prototype */ 
+
+{procedures:s}
+
+
+extern RPC_IF_HANDLE {name:s}_v1_0_c_ifspec;
+extern RPC_IF_HANDLE {name:s}_v1_0_s_ifspec;
+#endif /* __{name:s}_INTERFACE_DEFINED__ */
+
+/* Additional Prototypes for ALL interfaces */
+
+/* end of Additional Prototypes */
+
+#ifdef __cplusplus
+}}
+#endif
+
+#endif
+"""
 
 class DetectedRpcStruct(namedtuple('DetectedRpcStruct','type address object IID')):
     """
@@ -1351,6 +1485,15 @@ class FindRpcResult(object):
 
         return [ READ_PTR_VALUE(ph_ea) for ph_ea in ph_eas]
 
+    def get_proc_names(self):
+
+        for ea in self.get_proc_handlers():
+            func_name = idaapi.get_name(ea)   
+            if not func_name:
+                func_name = "fun_%08x" % ea
+
+            yield func_name
+
 
     def _print_address(self, member):
         """
@@ -1382,6 +1525,7 @@ class FindRpcResult(object):
         str_proc_handlers.insert(0, "-proc_handlers :")
         return "\n\t".join(str_proc_handlers)
 
+
     def __str__(self):
         elements = [
             "-stub_type: %s" % ("server", "client")[self.is_client()],
@@ -1400,30 +1544,52 @@ class FindRpcResult(object):
 
         return "\n".join(elements)
 
+    def generate_header(self, header_filepath, struct_prefix):
+
+        logging.info("writing header file for %s in : %s" % (struct_prefix, header_filepath))
+
+        # generate placeholding procedures
+        procedures = "\n\n".join(map(lambda f: "void %s();" % f, self.get_proc_names()))
+
+        with open(header_filepath, "w") as header:
+            
+            #----------------------------------------------------------------------
+            # header guard and includes
+            #----------------------------------------------------------------------
+            header.write(RPC_HEADER_PLACEHOLDER.format(
+                name = struct_prefix,
+                procedures = procedures
+            ))
+
+
 
     def gen_c_struct(self, folder, filename, fa, bytes_read = 0x100):
+
+        struct_prefix = filename.replace("(", "").replace(")", "").replace("-", "_").replace(".", "_")
     
         header_filepath = os.path.join(folder, "%s.h" % filename)
         source_filepath = os.path.join(folder, "%s_%s.c" % (filename, ("s", "c")[self.is_client()]))
 
-        with open(header_filepath, "w") as header:
+        self.generate_header(header_filepath, struct_prefix)
+
+        with open(source_filepath, "w") as header:
 
             # header guard and includes
             
             # Forward references
             header.write("// Forward references\n")
             if self.dispatch_table:
-                header.write("extern const RPC_DISPATCH_TABLE %s;\n" % RPC_DISPATCH_TABLE.get_c_instance_name(filename))
+                header.write("extern const RPC_DISPATCH_TABLE %s;\n" % RPC_DISPATCH_TABLE.get_c_instance_name(struct_prefix))
 
             if self.interpreter:
                 header.write("extern const %s %s;\n" % (
                     ("MIDL_SERVER_INFO", "MIDL_STUBLESS_PROXY_INFO")[self.interpreter.type == MIDL_STUBLESS_PROXY_INFO],
-                    self.interpreter.object.__class__.get_c_instance_name(filename)
+                    self.interpreter.object.__class__.get_c_instance_name(struct_prefix)
                 ))
 
             if self.stub_desc:
                 header.write("extern const MIDL_STUB_DESC %s;\n" % (
-                    self.stub_desc.object.__class__.get_c_instance_name(filename)
+                    self.stub_desc.object.__class__.get_c_instance_name(struct_prefix)
                 ))
 
             header.write("// end Forward references\n")
@@ -1431,12 +1597,16 @@ class FindRpcResult(object):
             
             # Structures
             if self.dispatch_table:
-                header.write(self.dispatch_table.object.gen_c_struct(filename, fa))
+                header.write(self.dispatch_table.object.gen_c_struct(struct_prefix, fa))
                 header.write("\n\n")
 
-            header.write(self.stub_desc.object.gen_c_struct(filename, fa))
-            header.write(self.interpreter.object.gen_c_struct(filename, fa, bytes_read =  bytes_read))
-            header.write(self.interface.object.gen_c_struct(filename, fa, is_client = self.is_client()))
+            header.write(self.stub_desc.object.gen_c_struct(struct_prefix, fa))
+            header.write(self.interpreter.object.gen_c_struct(struct_prefix, fa, bytes_read =  bytes_read))
+            header.write(self.interface.object.gen_c_struct(struct_prefix, fa, is_client = self.is_client()))
+
+
+#################################
+## search functions
 
 def is_address_in_data_section(ea):
     """
@@ -1885,7 +2055,7 @@ def main():
         
     # Show results
     rpc_detected_struct_form = RpcResultsForm(detected_rpc_structs)
-    rpc_results_form = FindRpcResultsForm(fr.results)
+    rpc_results_form = FindRpcResultsForm(fr)
 
     rpc_detected_struct_form.show()
     rpc_results_form.show()
