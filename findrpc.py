@@ -806,6 +806,17 @@ class RpcResultsForm( idaapi.PluginForm ):
         # Get parent widget
         self._widget  = self.FormToPyQtWidget(form)
 
+        self._init_ui()
+
+    def show(self):
+        """
+        Make the created form visible as a tabbed view.
+        """
+        flags = idaapi.PluginForm.WOPN_TAB | idaapi.PluginForm.WOPN_PERSIST 
+        return idaapi.PluginForm.Show(self, "detected rpc strcutures", flags)
+
+    
+    def _init_ui(self):
         self._font = QtGui.QFont("Monospace")
         self._font.setStyleHint(QtGui.QFont.TypeWriter)
         self._font_metrics = QtGui.QFontMetricsF(self._font)
@@ -839,7 +850,7 @@ class RpcResultsForm( idaapi.PluginForm ):
         self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
 
         # set the initial column widths for the table
-        self.guess_column_width()
+        self._guess_column_width()
 
         # table selection should be by row, not by cell
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -865,14 +876,9 @@ class RpcResultsForm( idaapi.PluginForm ):
         layout.addWidget(self._table)
         self._widget.setLayout(layout)
 
-    def show(self):
-        """
-        Make the created form visible as a tabbed view.
-        """
-        flags = idaapi.PluginForm.WOPN_TAB | idaapi.PluginForm.WOPN_PERSIST 
-        return idaapi.PluginForm.Show(self, "detected rpc strcutures", flags)
 
-    def guess_column_width(self):
+
+    def _guess_column_width(self):
         """
         Initial column redimensionning based on "hints" (sample values)
         """
@@ -1184,7 +1190,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
 
         # set the initial column widths for the table
-        self.guess_column_width()
+        self._guess_column_width()
 
         # table selection should be by row, not by cell
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
@@ -1211,7 +1217,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         self._widget.setLayout(layout)
 
 
-    def guess_column_width(self):
+    def _guess_column_width(self):
         """
         Initial column redimensionning based on "hints" (sample values)
         """
