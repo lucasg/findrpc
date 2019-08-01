@@ -967,6 +967,8 @@ class RpcResultsForm( idaapi.PluginForm ):
             if action == self._action_apply_type:
                 success = MakeStructEx(result.address, -1, result.type)
                 print("[findrpc] Applying type %s at address 0x%x : %s" % (result.type, result.address, ("KO", "OK")[success]))
+                if not success:
+                    warning("Could not apply type via idapython. Do it by hand instead (Alt+Q > %s)" % result.type)
 
             # handle the 'Copy name' action
             elif action == self._action_clear_type:
