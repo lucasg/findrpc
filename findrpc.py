@@ -338,6 +338,17 @@ class RPC_SERVER_INTERFACE(RpcStructure):
         
         return result
 
+    def has_proxy_info(self):
+
+        # TODO : 0x6000000 is an undocumented flag indicating that InterpreterInfo 
+        # is a stubless proxy structure, not a fully defined MIDL_SERVER_INFO instance.
+        # TODO :  self.Flags == 0  can also means "inlined" server with no interpretor info
+        return (self.Flags & 0x2000000) == 0x2000000
+
+    def has_interpreter_info(self):
+        return (self.Flags & 0x4000000) == 0x4000000
+
+
     def __str__(self):
         return "\n".join([
             " -Length : %d" % self.Length,
@@ -1549,7 +1560,16 @@ class FindRpcResult(object):
         logging.info("writing header file for %s in : %s" % (struct_prefix, header_filepath))
 
         # generate placeholding procedures
-        procedures = "\n\n".join(map(lambda f: "void %s();" % f, self.get_proc_names()))
+        # TODO : improve namimg based on whether it's a client or a server
+        if self.is_client():
+            # in stubless clients, the MIDL_DESC is used in every call
+            # TODO : this is bad since we can have duplicates
+            xrefs = list(filter(lambda x: not is_address_in_data_section(x.frm), XrefsTo(self.stub_desc.address)))
+            num_procedures = len(xrefs) 
+            
+            procedures = "\n\n".join(map(lambda n: "void Proc%d();" % n, range(num_procedures)))
+        else:
+            procedures = "\n\n".join(map(lambda f: "void %s();" % f, self.get_proc_names()))
 
         with open(header_filepath, "w") as header:
             
@@ -1680,21 +1700,23 @@ def read_ctypes_structure(address, ctypes_structure):
 
     return ctypes_object
 
-def read_rpc_interpreter_info(interface_object):
+def read_rpc_interpreter_info(interface_obj, address):
     """
     Read the InterpreterInfo pointer, either as a MIDL_SERVER_INFO or MIDL_STUBLESS_PROXY_INFO structure.
     """
 
-    # TODO : 0x6000000 is an undocumented flag indicating that InterpreterInfo is a stubless proxy structure, 
-    # not a fully defined MIDL_SERVER_INFO instance.
-    if ((interface_object.Flags & 0x6000000) == 0x6000000):
-        interpreter_obj = read_ctypes_structure (interface_object.InterpreterInfo, MIDL_SERVER_INFO)
-        interpreter_type = TYPE_MIDL_SERVER_INFO
-        interpreter_ctype = MIDL_SERVER_INFO
-    else:
-        interpreter_obj = read_ctypes_structure (interface_object.InterpreterInfo, MIDL_STUBLESS_PROXY_INFO)
+    if not interface_obj.has_interpreter_info():
+        # What are you trying to read ?
+        return (None, None, None)
+
+    if interface_obj.has_proxy_info():
+        interpreter_obj = read_ctypes_structure (address, MIDL_STUBLESS_PROXY_INFO)
         interpreter_type = TYPE_MIDL_STUBLESS_PROXY_INFO
         interpreter_ctype = MIDL_STUBLESS_PROXY_INFO
+    else:
+        interpreter_obj = read_ctypes_structure (address, MIDL_SERVER_INFO)
+        interpreter_type = TYPE_MIDL_SERVER_INFO
+        interpreter_ctype = MIDL_SERVER_INFO
 
     return interpreter_ctype, interpreter_type, interpreter_obj
 
@@ -1749,28 +1771,25 @@ class FindRpc(object):
         # initial search
         for (ea, xrefs, data_xrefs) in self._bingrep_rpc_server_interface_marker():
 
+                
+
                 # read data as RPC_SERVER_INTERFACE
                 interface_obj = read_ctypes_structure (ea, RPC_SERVER_INTERFACE)
                 if not interface_obj:
                     continue
 
-
-                if not is_address_in_data_section(interface_obj.InterpreterInfo):
-                    continue
+                # interface_obj.InterpreterInfo is optional for stubless clients, but if set it must point to a correct address in a R(W) section
+                if interface_obj.InterpreterInfo and (not is_address_in_data_section(interface_obj.InterpreterInfo)):
+                        continue
 
                 # interface_obj.DispatchTable is optional, but if set it must point to a correct address in a R(W) section
                 if interface_obj.DispatchTable and (not is_address_in_data_section(interface_obj.DispatchTable)):
                     continue
 
-                # TODO : are all RPC_SERVER_INTERFACE instances must have a interface_obj.InterpreterInfo ?
-                if not interface_obj.InterpreterInfo:
-                    continue
-
-                # Read  InterpreterInfo structure
-                interpreter_ctype, interpreter_type, interpreter_obj = read_rpc_interpreter_info(interface_obj)
 
                 guid = interface_obj.InterfaceId.SyntaxGUID
                 result = FindRpcResult(guid, None, None)
+                logging.debug ("[findrpc] [!] Found rpc server/client interface : %x - %s" % (ea, guid))
 
                 result.interface = self._decode_rpc_structure(
                     ea,
