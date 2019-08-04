@@ -1200,7 +1200,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         self._table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._ui_ctx_menu_handler)
 
-        self._action_generate_stub = QtWidgets.QAction("Generate stub", None)
+        self._action_generate_stub = QtWidgets.QAction("Generate stub (beta)", None)
         # self._action_clear_type = QtWidgets.QAction("Clear applied type", None)
         # self._action_rename_struct = QtWidgets.QAction("Renamed applied type", None)
         # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
