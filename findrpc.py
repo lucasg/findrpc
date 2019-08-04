@@ -1621,7 +1621,8 @@ class FindRpcResult(object):
                 header.write("\n\n")
 
             header.write(self.stub_desc.object.gen_c_struct(struct_prefix, fa))
-            header.write(self.interpreter.object.gen_c_struct(struct_prefix, fa, bytes_read =  bytes_read))
+            if self.interpreter:
+                header.write(self.interpreter.object.gen_c_struct(struct_prefix, fa, bytes_read =  bytes_read))
             header.write(self.interface.object.gen_c_struct(struct_prefix, fa, is_client = self.is_client()))
 
 
@@ -1799,19 +1800,25 @@ class FindRpc(object):
                     optional = False
                 )
 
-                result.interpreter = self._decode_rpc_structure(
-                    interface_obj.InterpreterInfo,
-                    interpreter_ctype,
-                    interpreter_type,
-                    result,
-                    optional = False
-                )
+                # TODO : are all RPC_SERVER_INTERFACE instances must have a interface_obj.InterpreterInfo ?
+                # MISC : some stubless clients does not have interpreter informations. In that case, use xrefs to locate the
+                #        MIDL_STUB_DESC information and go the otherway around using hex(list(XrefsTo(here()))[0].frm)
+                if interface_obj.InterpreterInfo:
+                    
+                    # Read  InterpreterInfo structure
+                    interpreter_ctype , interpreter_type, interpreter_obj = read_rpc_interpreter_info(interface_obj, interface_obj.InterpreterInfo)
 
-                
-                
-                logging.debug ("[findrpc] [!] Found rpc server interface : %x - %s" % (ea, guid))
-                logging.debug ("[findrpc]   - interpreter info : %x" % (interface_obj.InterpreterInfo))
-                logging.debug ("[findrpc]   - stub descriptor : %x" % (interpreter_obj.pStubDesc))
+                    result.interpreter = self._decode_rpc_structure(
+                        interface_obj.InterpreterInfo,
+                        interpreter_ctype,
+                        interpreter_type,
+                        result,
+                        optional = True
+                    )
+
+                    logging.debug ("[findrpc]   - interpreter info : %x" % (interface_obj.InterpreterInfo))
+                    logging.debug ("[findrpc]   - stub descriptor : %x" % (interpreter_obj.pStubDesc))
+
                 yield result
 
     def search_rpc_structures(self):
@@ -1939,6 +1946,7 @@ class FindRpc(object):
 
             # LIFO style
             item = self._process_queue_list.pop(0)
+            xrefs = list(filter(lambda x: is_address_in_data_section(x.frm), XrefsTo(item.address)))
 
             if item.type == TYPE_RPC_SERVER_INTERFACE:
                 
@@ -1949,6 +1957,17 @@ class FindRpc(object):
                     TYPE_RPC_DISPATCH_TABLE,
                     item.IID,
                 )
+
+                # potential TYPE_MIDL_STUB_DESC structure referencing the interface
+                if len(xrefs) == 1:
+                    midl_stub_desc_ea = xrefs[0].frm
+                    
+                    self._decode_rpc_structure(
+                        midl_stub_desc_ea,
+                        MIDL_STUB_DESC,
+                        TYPE_MIDL_STUB_DESC,
+                        item.IID,
+                    )
 
 
             elif item.type == TYPE_MIDL_SERVER_INFO or item.type == TYPE_MIDL_STUBLESS_PROXY_INFO:
@@ -1981,7 +2000,29 @@ class FindRpc(object):
                 pass
 
             elif item.type == TYPE_MIDL_STUB_DESC:
-                pass
+
+                # potential MIDL_SERVER_INFO/MIDL_STUBLESS_PROXY_INFO structure referencing the interface
+                if len(xrefs) == 1:
+                    midl_info_ea = xrefs[0].frm
+
+                    interface = self._decode_rpc_structure(
+                        item.object.RpcInterfaceInformation,
+                        RPC_SERVER_INTERFACE,
+                        TYPE_RPC_SERVER_INTERFACE,
+                        item.IID,
+                    )
+
+                    if interface:
+
+                        # Read  InterpreterInfo structure
+                        interpreter_ctype , interpreter_type, interpreter_obj = read_rpc_interpreter_info(interface.object, midl_info_ea)
+                        
+                        self._decode_rpc_structure(
+                            midl_info_ea,
+                            MIDL_STUB_DESC,
+                            TYPE_MIDL_STUB_DESC,
+                            item.IID,
+                        )
 
             yield item
 
