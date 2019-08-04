@@ -609,6 +609,7 @@ class MIDL_STUB_DESC(RpcStructure):
             "    .pfnAllocate = MIDL_user_allocate,",
             "    .pfnFree = MIDL_user_free,",
             "    // FIXME",
+            "    .fCheckBounds : %d," % self.fCheckBounds,
             "    .Version : 0x%x," % self.Version,
             "    // FIXME",
             "    .MIDLVersion : 0x%x," % self.MIDLVersion,
