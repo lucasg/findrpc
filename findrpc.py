@@ -1201,7 +1201,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         self._table.customContextMenuRequested.connect(self._ui_ctx_menu_handler)
 
         self._action_generate_stub = QtWidgets.QAction("Generate stub (beta)", None)
-        # self._action_clear_type = QtWidgets.QAction("Clear applied type", None)
+        self._action_export_json = QtWidgets.QAction("Generate json summary", None)
         # self._action_rename_struct = QtWidgets.QAction("Renamed applied type", None)
         # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
 
@@ -1278,6 +1278,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
     
         ctx_menu.addAction(self._action_generate_stub)
         ctx_menu.addSeparator()
+        ctx_menu.addAction(self._action_export_json)
 
         # return the completed context menu
         return ctx_menu
@@ -1303,16 +1304,37 @@ class FindRpcResultsForm( idaapi.PluginForm ):
             file_basename, file_ext = os.path.splitext(idaapi.get_root_filename())
             directory = os.path.dirname(idaapi.get_input_file_path())
 
-            file_basename = idc.AskStr("%s_%s" % (file_basename, result.IID), '[1/2] Enter stub name:')
-            directory = idc.AskStr(directory, '[2/2] Enter export directory:')
-
             if action == self._action_generate_stub:
+
+                file_basename = idc.AskStr("%s_%s" % (file_basename, result.IID), '[1/2] Enter stub name:')
+                if not file_basename:
+                    return
+
+                directory = idc.AskStr(directory, '[2/2] Enter export directory:')
+                if not directory:
+                    return
+
                 success = result.gen_c_struct(
                     directory,
                     file_basename,
                     self.rpc_results_db
                 )
-                # def gen_c_struct(self, folder, filename, fa, bytes_read = 0x100):
+
+
+            elif action == self._action_export_json:
+                json_export = result.json_export_result()
+                
+                default_filepath = os.path.join(
+                    directory,
+                    "%s_%s.json" % (file_basename, result.IID)
+                )
+                filepath = idc.AskStr(default_filepath, '[1/1] Enter json filepath:')
+                if not filepath:
+                    return
+
+                with open(filepath, "w") as out:
+                    out.write(json_export)
+
                 
 
 #################################
@@ -1626,6 +1648,57 @@ class FindRpcResult(object):
                 header.write(self.interpreter.object.gen_c_struct(struct_prefix, fa, bytes_read =  bytes_read))
             header.write(self.interface.object.gen_c_struct(struct_prefix, fa, is_client = self.is_client()))
 
+    def json_export_result(self, bytes_read = 0x100):
+        """
+        Export detected result as a json formated string.
+        note: FmtStringOffset, ProcString and FormatTypes does not have a "length" (we have to parse Ndr syntax in order to know it) 
+                so tweak `bytes_read` parameter to export the entirety.
+        """
+
+        def get_optional_object(detected_struct):
+            if not detected_struct:
+                return None
+            return  self.dispatch_table.object
+
+        def get_optional_address(detected_struct):
+            if not detected_struct:
+                return None
+            return  self.dispatch_table.address
+
+
+        exportable_data = {
+
+            # "raw" data
+            "ServerInterface": self.interface.object,
+            "StubDesc": self.stub_desc.object,
+            "DispatchTable": get_optional_object(self.dispatch_table),
+            "InterpretorInfo": get_optional_object(self.interpreter),
+            "TransferSyntax": get_optional_object(self.transfer_syntax),
+            "SyntaxInfo": [ si.object for si in self.syntax_info],
+            "ProcHandlers" : self.get_proc_handlers(),
+            "FmtStringOffset" : [ord(x) for x in ida_bytes.get_many_bytes(self.interpreter.object.FmtStringOffset, bytes_read)],
+            "ProcString" : [ord(x) for x in ida_bytes.get_many_bytes(self.interpreter.object.ProcString, bytes_read)],
+            "FormatTypes" : [ord(x) for x in ida_bytes.get_many_bytes(self.stub_desc.object.pFormatTypes, bytes_read)],
+
+            # instances structures address for linking structures
+            "ImageBaseAddress" : idaapi.get_imagebase(),
+            "ServerInterfaceAddress":  self.interface.address,
+            "StubDescAddress": self.stub_desc.address,
+            "DispatchTableAddress": getattr(self.dispatch_table, "address", 0x00),
+            "InterpretorInfoAddress": get_optional_address(self.interpreter),
+            "TransferSyntaxAddress": get_optional_address(self.transfer_syntax),
+            "SyntaxInfoAddress": [ si.address for si in self.syntax_info],
+            "ProcHandlersAddress" : self.get_proc_handlers_ea(),
+            "FmtStringOffsetAddress" : self.interpreter.object.FmtStringOffset,
+            "ProcStringAddress" : self.interpreter.object.ProcString,
+            "FormatTypesAddress" : self.stub_desc.object.pFormatTypes,
+
+            # Useful metadatas
+            "DllName" : idaapi.get_root_filename(),
+            "Filepath" : idaapi.get_input_file_path(),
+        }
+
+        return json.dumps(exportable_data, cls=CDataJSONEncoder)
 
 #################################
 ## search functions
@@ -1860,53 +1933,6 @@ class FindRpc(object):
         """
         result.gen_c_struct(folder, filename, self, bytes_read=bytes_read)
 
-
-    def json_export_result(self, result, bytes_read = 0x100):
-        """
-        Export detected result as a json formated string.
-        note: FmtStringOffset, ProcString and FormatTypes does not have a "length" (we have to parse Ndr syntax in order to know it) 
-                so tweak `bytes_read` parameter to export the entirety.
-        """
-
-        dp = result.dispatch_table
-        if not result.dispatch_table:
-            dp = None
-        else:
-            dp = result.dispatch_table.object
-
-        exportable_data = {
-
-            # "raw" data
-            "ServerInterface": result.interface.object,
-            "StubDesc": result.stub_desc.object,
-            "DispatchTable": dp,
-            "InterpretorInfo": result.interpreter.object,
-            "TransferSyntax": result.transfer_syntax.object,
-            "SyntaxInfo": [ si.object for si in result.syntax_info],
-            "ProcHandlers" : result.get_proc_handlers(),
-            "FmtStringOffset" : [ord(x) for x in ida_bytes.get_many_bytes(result.interpreter.object.FmtStringOffset, bytes_read)],
-            "ProcString" : [ord(x) for x in ida_bytes.get_many_bytes(result.interpreter.object.ProcString, bytes_read)],
-            "FormatTypes" : [ord(x) for x in ida_bytes.get_many_bytes(result.stub_desc.object.pFormatTypes, bytes_read)],
-
-            # instances structures address for linking structures
-            "ImageBaseAddress" : idaapi.get_imagebase(),
-            "ServerInterfaceAddress":  result.interface.address,
-            "StubDescAddress": result.stub_desc.address,
-            "DispatchTableAddress": getattr(result.dispatch_table, "address", 0x00),
-            "InterpretorInfoAddress": result.interpreter.address,
-            "TransferSyntaxAddress": result.transfer_syntax.address,
-            "SyntaxInfoAddress": [ si.address for si in result.syntax_info],
-            "ProcHandlersAddress" : result.get_proc_handlers_ea(),
-            "FmtStringOffsetAddress" : result.interpreter.object.FmtStringOffset,
-            "ProcStringAddress" : result.interpreter.object.ProcString,
-            "FormatTypesAddress" : result.stub_desc.object.pFormatTypes,
-
-            # Useful metadatas
-            "DllName" : idaapi.get_root_filename(),
-            "Filepath" : idaapi.get_input_file_path(),
-        }
-
-        return json.dumps(exportable_data, cls=CDataJSONEncoder)
 
 
     def _decode_rpc_structure(self, address, ctypes_type, findrpc_type, IID, optional = True):
