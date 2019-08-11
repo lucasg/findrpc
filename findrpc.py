@@ -204,7 +204,7 @@ class GUID(RpcStructure):
         Return the GUID in a way Microsoft likes.
         """
 
-        return "%04x-%02x-%02x-%02x-%s" % (
+        return "%08x-%04x-%04x-%04x-%s" % (
                 self.Data1, 
                 self.Data2, 
                 self.Data3, 
