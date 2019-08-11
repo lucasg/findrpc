@@ -1328,7 +1328,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
                     directory,
                     "%s_%s.json" % (file_basename, result.IID)
                 )
-                filepath = idc.AskStr(default_filepath, '[1/1] Enter json filepath:')
+                filepath = idc.AskStr(default_filepath, '[1/2] Enter json filepath:')
                 if not filepath:
                     return
 
@@ -1648,7 +1648,7 @@ class FindRpcResult(object):
                 header.write(self.interpreter.object.gen_c_struct(struct_prefix, fa, bytes_read =  bytes_read))
             header.write(self.interface.object.gen_c_struct(struct_prefix, fa, is_client = self.is_client()))
 
-    def json_export_result(self, bytes_read = 0x100):
+    def json_export_result(self, bytes_read = 0x1000):
         """
         Export detected result as a json formated string.
         note: FmtStringOffset, ProcString and FormatTypes does not have a "length" (we have to parse Ndr syntax in order to know it) 
@@ -1658,12 +1658,12 @@ class FindRpcResult(object):
         def get_optional_object(detected_struct):
             if not detected_struct:
                 return None
-            return  self.dispatch_table.object
+            return  detected_struct.object
 
         def get_optional_address(detected_struct):
             if not detected_struct:
-                return None
-            return  self.dispatch_table.address
+                return 0
+            return detected_struct.address
 
 
         exportable_data = {
@@ -1780,20 +1780,23 @@ def read_rpc_interpreter_info(interface_obj, address):
     Read the InterpreterInfo pointer, either as a MIDL_SERVER_INFO or MIDL_STUBLESS_PROXY_INFO structure.
     """
 
-    if not interface_obj.has_interpreter_info():
-        # What are you trying to read ?
-        return (None, None, None)
+    # Servers usually has interpreter info
+    if interface_obj.has_interpreter_info():
+        interpreter_obj = read_ctypes_structure (address, MIDL_SERVER_INFO)
+        interpreter_type = TYPE_MIDL_SERVER_INFO
+        interpreter_ctype = MIDL_SERVER_INFO
+        return interpreter_ctype, interpreter_type, interpreter_obj
 
+    # clients can have proxy info
     if interface_obj.has_proxy_info():
         interpreter_obj = read_ctypes_structure (address, MIDL_STUBLESS_PROXY_INFO)
         interpreter_type = TYPE_MIDL_STUBLESS_PROXY_INFO
         interpreter_ctype = MIDL_STUBLESS_PROXY_INFO
-    else:
-        interpreter_obj = read_ctypes_structure (address, MIDL_SERVER_INFO)
-        interpreter_type = TYPE_MIDL_SERVER_INFO
-        interpreter_ctype = MIDL_SERVER_INFO
+        return interpreter_ctype, interpreter_type, interpreter_obj
 
-    return interpreter_ctype, interpreter_type, interpreter_obj
+
+    # What are you trying to read ?
+    return (None, None, None)
 
 def get_structure_name_at_address(address):
     """ 
@@ -1846,41 +1849,40 @@ class FindRpc(object):
         # initial search
         for (ea, xrefs, data_xrefs) in self._bingrep_rpc_server_interface_marker():
 
+            # read data as RPC_SERVER_INTERFACE
+            interface_obj = read_ctypes_structure (ea, RPC_SERVER_INTERFACE)
+            if not interface_obj:
+                continue
+
+            # interface_obj.InterpreterInfo is optional for stubless clients, but if set it must point to a correct address in a R(W) section
+            if interface_obj.InterpreterInfo and (not is_address_in_data_section(interface_obj.InterpreterInfo)):
+                continue
+
+            # interface_obj.DispatchTable is optional, but if set it must point to a correct address in a R(W) section
+            if interface_obj.DispatchTable and (not is_address_in_data_section(interface_obj.DispatchTable)):
+                continue
+
+
+            guid = interface_obj.InterfaceId.SyntaxGUID
+            result = FindRpcResult(guid, None, None)
+            logging.debug ("[findrpc] [!] Found rpc server/client interface : %x - %s" % (ea, guid))
+
+            result.interface = self._decode_rpc_structure(
+                ea,
+                RPC_SERVER_INTERFACE,
+                TYPE_RPC_SERVER_INTERFACE,
+                result,
+                optional = False
+            )
+
+            # TODO : are all RPC_SERVER_INTERFACE instances must have a interface_obj.InterpreterInfo ?
+            # MISC : some stubless clients does not have interpreter informations. In that case, use xrefs to locate the
+            #        MIDL_STUB_DESC information and go the otherway around using hex(list(XrefsTo(here()))[0].frm)
+            if interface_obj.InterpreterInfo:
                 
-
-                # read data as RPC_SERVER_INTERFACE
-                interface_obj = read_ctypes_structure (ea, RPC_SERVER_INTERFACE)
-                if not interface_obj:
-                    continue
-
-                # interface_obj.InterpreterInfo is optional for stubless clients, but if set it must point to a correct address in a R(W) section
-                if interface_obj.InterpreterInfo and (not is_address_in_data_section(interface_obj.InterpreterInfo)):
-                        continue
-
-                # interface_obj.DispatchTable is optional, but if set it must point to a correct address in a R(W) section
-                if interface_obj.DispatchTable and (not is_address_in_data_section(interface_obj.DispatchTable)):
-                    continue
-
-
-                guid = interface_obj.InterfaceId.SyntaxGUID
-                result = FindRpcResult(guid, None, None)
-                logging.debug ("[findrpc] [!] Found rpc server/client interface : %x - %s" % (ea, guid))
-
-                result.interface = self._decode_rpc_structure(
-                    ea,
-                    RPC_SERVER_INTERFACE,
-                    TYPE_RPC_SERVER_INTERFACE,
-                    result,
-                    optional = False
-                )
-
-                # TODO : are all RPC_SERVER_INTERFACE instances must have a interface_obj.InterpreterInfo ?
-                # MISC : some stubless clients does not have interpreter informations. In that case, use xrefs to locate the
-                #        MIDL_STUB_DESC information and go the otherway around using hex(list(XrefsTo(here()))[0].frm)
-                if interface_obj.InterpreterInfo:
-                    
-                    # Read  InterpreterInfo structure
-                    interpreter_ctype , interpreter_type, interpreter_obj = read_rpc_interpreter_info(interface_obj, interface_obj.InterpreterInfo)
+                # Read  InterpreterInfo structure
+                interpreter_ctype , interpreter_type, interpreter_obj = read_rpc_interpreter_info(interface_obj, interface_obj.InterpreterInfo)
+                if interpreter_obj:
 
                     result.interpreter = self._decode_rpc_structure(
                         interface_obj.InterpreterInfo,
@@ -1893,7 +1895,7 @@ class FindRpc(object):
                     logging.debug ("[findrpc]   - interpreter info : %x" % (interface_obj.InterpreterInfo))
                     logging.debug ("[findrpc]   - stub descriptor : %x" % (interpreter_obj.pStubDesc))
 
-                yield result
+            yield result
 
     def search_rpc_structures(self):
         """
@@ -2013,7 +2015,8 @@ class FindRpc(object):
                     item.IID,
                 )
 
-                for i in range(0, item.object.nCount):
+                
+                for i in range(0, max(item.object.nCount, 2)):
                     
                     self._decode_rpc_structure(
                         item.object.pSyntaxInfo + i*ctypes.sizeof(MIDL_SYNTAX_INFO),
@@ -2021,6 +2024,8 @@ class FindRpc(object):
                         TYPE_MIDL_SYNTAX_INFO,
                         item.IID,
                     )         
+
+
 
             # TODO 
             elif item.type == TYPE_MIDL_SYNTAX_INFO:
