@@ -16,7 +16,7 @@ Features
 
 * Locate dispatch tables for RPC servers:
 
-![](screenshot/sgrm_broker_dispattch_table.PNG)
+![](screenshot/sgrm_broker_dispatch_table.PNG)
 
 
 Study Example #1 : SgrmBroker
