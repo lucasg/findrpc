@@ -439,7 +439,7 @@ class MIDL_SERVER_INFO(RpcStructure):
             "   .ProcString = %s," % proc_string_pointer,
             "   .ThunkTable = NULL, // FIXME",
             "   .pTransferSyntax = %s," % transfer_syntax_pointer,
-            "   .nCount={0:d},".format(self.nCount),
+            "   .nCount={c:d},".format(c = self.nCount),
             "   .pSyntaxInfo = NULL //FIXME",
             "};",
             "",
