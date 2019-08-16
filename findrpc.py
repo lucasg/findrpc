@@ -3,6 +3,7 @@ import binascii
 import struct
 import logging
 import json
+import inspect
 from collections import namedtuple
 from ctypes import Array, Structure, Union, _Pointer, _SimpleCData
 from json import JSONEncoder
@@ -1202,6 +1203,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
 
         self._action_generate_stub = QtWidgets.QAction("Generate stub (beta)", None)
         self._action_export_json = QtWidgets.QAction("Generate json summary", None)
+        self._action_decompile = QtWidgets.QAction("Decompile interface (only on Windows)", None)
         # self._action_rename_struct = QtWidgets.QAction("Renamed applied type", None)
         # self._action_rename_proc_handlers = QtWidgets.QAction("Renamed proc handlers", None)
 
@@ -1279,6 +1281,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         ctx_menu.addAction(self._action_generate_stub)
         ctx_menu.addSeparator()
         ctx_menu.addAction(self._action_export_json)
+        ctx_menu.addAction(self._action_decompile)
 
         # return the completed context menu
         return ctx_menu
@@ -1335,7 +1338,53 @@ class FindRpcResultsForm( idaapi.PluginForm ):
                 with open(filepath, "w") as out:
                     out.write(json_export)
 
+            elif action == self._action_decompile:
+
+                if not os.environ.get("_NT_SYMBOL_PATH", None):
+                    symbol_store = idc.AskStr("", '_NT_SYMBOL_PATH is not set, please enter the folder to the local symbol store :')
+                    os.environ["_NT_SYMBOL_PATH"] = symbol_store
+
+                result.decompile()
+
                 
+class RpcIdlForm( idaapi.PluginForm):
+
+    html_template = """
+<html>
+<head>
+<style>{style:s}</style>
+</head>
+<body>
+<div style="white-space:pre">
+{rows:s}
+</div>
+</body>
+</html>
+"""
+    
+    def OnCreate(self, form):
+        
+        self.parent = self.FormToPyQtWidget(form)
+        self.PopulateForm()
+
+        self.browser = None
+        self.layout = None
+        return 1
+
+    def PopulateForm(self):
+
+        self.layout = QtWidgets.QVBoxLayout()
+        self.browser = QtWidgets.QTextBrowser()
+        self.browser.setLineWrapMode(QtWidgets.QTextEdit.NoWrap)
+        self.browser.setHtml(self.text)
+        self.browser.setReadOnly(True)
+        self.browser.setFontWeight(12)
+        self.layout.addWidget(self.browser)
+        self.parent.setLayout(self.layout)
+
+    def Show(self, text, title):
+        self.text = RpcIdlForm.html_template.format(rows = text, style="")
+        return idaapi.PluginForm.Show(self, title)
 
 #################################
 ## Results classes
@@ -1699,6 +1748,43 @@ class FindRpcResult(object):
         }
 
         return json.dumps(exportable_data, cls=CDataJSONEncoder)
+
+    def decompile(self):
+        import subprocess
+        import tempfile
+
+        tmp_json = "%s.json" % tempfile.mktemp()
+        with open(tmp_json, "w") as out:
+            out.write(self.json_export_result())
+
+        decompiler_path = os.path.join (
+            os.path.dirname(get_script_filepath()),
+            "decompile",
+            "DecompileInterface.exe"
+        )
+
+        # Run the decompiler without showing the console
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        output = subprocess.check_output([
+            decompiler_path,
+            tmp_json
+        ], startupinfo=si)
+
+
+     
+        # Clean up output and formating
+        output = output.replace("/* Stack Offset:", "\r\n\t\t/* Stack Offset:")
+        output = output.replace("\t", "&emsp;")
+
+        rows = output.split("\r\n")
+        html_rows = "\n".join(map(lambda r:"<p>%s</p>" % r, rows))
+        form_title = "Decompiled IDL for interface %s" % self.get_syntax_guid()
+
+        # Launch a custom form to display the idl
+        idl_result = RpcIdlForm()
+        idl_result.Show(html_rows, form_title)
+        
 
 #################################
 ## search functions
@@ -2129,6 +2215,10 @@ def check_binary_is_pe():
     # Seriously, this is how someone test if the currently loaded binary is a PE file ?
     # How about making a enum, and a `idainfo.get_filetype()` function ?
     return idc.get_inf_attr(idc.INF_FILETYPE) == idc.FT_PE
+
+def get_script_filepath():
+    # Since IDA rely on exec'd scripts, __file__ is unusable
+    return os.path.abspath(inspect.getframeinfo(inspect.currentframe()).filename)
 
 def main():
     preload_standard_rpc_structures()
