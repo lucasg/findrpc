@@ -7,11 +7,12 @@ Usage
 Just run the script `findrpc.py`.
 
 NB : wait for the autoanalysis to finish before running the script.
+
 NBB : if you want to regenerate the IDL, you need to have the `decompile` folder in the same directory as `findrpc.py`
 
-The script rely on the same heuristic as James Forshaw's (`FindRpcServerInterfaces`)[https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373 ] but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" structures between RPC structures  (e.g. in the case of a proxy definition).
+The script rely on the same heuristic as James Forshaw's [https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373](`FindRpcServerInterfaces`) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" structures between RPC structures  (e.g. in the case of a proxy definition).
 
-Unlike `RpcView` or `NtApiDotNet`, also return the RPC clients embbeded in the binary, which may be of use when reversing.  
+Unlike `RpcView` or `NtApiDotNet`  `findrpc.py` also return the RPC clients embbeded in the binary, which may or may not be of use when reversing.  
 
 Features
 ------------

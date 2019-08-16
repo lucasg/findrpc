@@ -1717,17 +1717,21 @@ class FindRpcResult(object):
 
         exportable_data = {
 
-            # "raw" data
+            # "raw" RPC structures
             "ServerInterface": self.interface.object,
             "StubDesc": self.stub_desc.object,
             "DispatchTable": get_optional_object(self.dispatch_table),
             "InterpretorInfo": get_optional_object(self.interpreter),
             "TransferSyntax": get_optional_object(self.transfer_syntax),
             "SyntaxInfo": [ si.object for si in self.syntax_info],
-            "ProcHandlers" : self.get_proc_handlers(),
-            "FmtStringOffset" : [ord(x) for x in ida_bytes.get_many_bytes(self.interpreter.object.FmtStringOffset, bytes_read)],
-            "ProcString" : [ord(x) for x in ida_bytes.get_many_bytes(self.interpreter.object.ProcString, bytes_read)],
-            "FormatTypes" : [ord(x) for x in ida_bytes.get_many_bytes(self.stub_desc.object.pFormatTypes, bytes_read)],
+
+            #  
+            "ProcHandlers" : self.  get_proc_handlers(),
+
+            # Unsized arrays => we store only the file offset
+            "FmtStringOffset" : idaapi.get_fileregion_offset(self.interpreter.object.FmtStringOffset),
+            "ProcString" : idaapi.get_fileregion_offset(self.interpreter.object.ProcString), 
+            "FormatTypes" : idaapi.get_fileregion_offset(self.stub_desc.object.pFormatTypes), 
 
             # instances structures address for linking structures
             "ImageBaseAddress" : idaapi.get_imagebase(),
