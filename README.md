@@ -8,7 +8,7 @@ Just run the script `findrpc.py`.
 
 NB : wait for the autoanalysis to finish before running the script.
 
-NBB : if you want to regenerate the IDL, you need to have the `decompile` folder in the same directory as `findrpc.py`
+
 
 The script rely on the same heuristic as James Forshaw's [https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373](`FindRpcServerInterfaces`) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" structures between RPC structures  (e.g. in the case of a proxy definition).
 
@@ -25,10 +25,16 @@ Features
 
 ![](screenshot/sgrm_broker_dispatch_table.PNG)
 
+* Quicky rename every RPC proc handlers found:
+
+![](screenshot/spectrum_renaming.PNG)
+
 * (On Windows) Generate decompiled IDL from RPC declarations :
 
 ![](screenshot/d310_warp_idl_generation.PNG)
 
+
+BB : if you want to regenerate the IDL, you need to have the `decompile` folder in the same directory as `findrpc.py`. `DecompileInterface.exe` is a custom loader for Forshaw's `NdrParser.ReadFromRpcServerInterface` which uses a json file exported from IDA instead of reading remote process's memory.
 
 
 Study Example #1 : SgrmBroker
@@ -43,7 +49,7 @@ Decompiled Interface :
 
 ```idl
 // DllOffset: 0x2C9C0
-// DllPath O:\Legifrance\binaries\findrpc\SgrmBroker_10.0.18362.1_WinBuild.160101.0800_2DF8A183.exe
+// DllPath C:\Windows\System32\SgrmBroker.exe 
 // Complex Types:
 /* Memory Size: 132 */
 struct Struct_0 {

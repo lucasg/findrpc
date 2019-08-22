@@ -1768,13 +1768,16 @@ class FindRpcResult(object):
         )
 
         # Run the decompiler without showing the console
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        output = subprocess.check_output([
-            decompiler_path,
-            tmp_json
-        ], startupinfo=si)
-
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            output = subprocess.check_output([
+                decompiler_path,
+                tmp_json
+            ], startupinfo=si)
+        except subprocess.CalledProcessError as cpe:
+            idaapi.warning("Could not decompile RPC interface %s" % (self.get_syntax_guid()))
+            return
 
      
         # Clean up output and formating
