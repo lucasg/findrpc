@@ -10,7 +10,7 @@ NB : wait for the autoanalysis to finish before running the script.
 
 
 
-The script rely on the same heuristic as James Forshaw's [https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373](`FindRpcServerInterfaces`) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" structures between RPC structures  (e.g. in the case of a proxy definition).
+The script rely on the same heuristic as James Forshaw's [https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373](`FindRpcServerInterfaces`) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" relationships between RPC structures  (e.g. in the case of a proxy definition).
 
 Unlike `RpcView` or `NtApiDotNet`  `findrpc.py` also return the RPC clients embbeded in the binary, which may or may not be of use when reversing.  
 
@@ -34,7 +34,7 @@ Features
 ![](screenshot/d310_warp_idl_generation.PNG)
 
 
-BB : if you want to regenerate the IDL, you need to have the `decompile` folder in the same directory as `findrpc.py`. `DecompileInterface.exe` is a custom loader for Forshaw's `NdrParser.ReadFromRpcServerInterface` which uses a json file exported from IDA instead of reading remote process's memory.
+BB : if you want to regenerate the IDL, you need to have the `decompile` folder in the same directory as `findrpc.py`. `DecompileInterface.exe` is a custom loader for Forshaw's `NdrParser.ReadFromRpcServerInterface` which uses a json file exported from IDA instead of reading a remote process's memory.
 
 
 Study Example #1 : SgrmBroker
