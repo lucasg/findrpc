@@ -158,12 +158,12 @@ Study Example #3 : notskrnl.exe
 
 RPC code is fucking everywhere, even in kerneland. Apparentlty some parts of the `\\Device\\DeviceApi` device can deserialize NDR data using RPC interface's `bd84cd86-9825-4376-813d334c543f89b1` type and string formats :
 
-![](screenshot/ntosknrl_rpc.PNG)
+![](screenshot/ntoskrnl_rpc.PNG)
 
 This is coherent with the fact that the "Device Association" service register `bd84cd86-9825-4376-813d334c543f89b1` interface on the epr mapper :
 
 
-![](screenshot/ntosknrl_das.PNG)
+![](screenshot/ntoskrnl_das.PNG)
 
 References
 ------------
