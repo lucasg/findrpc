@@ -2254,5 +2254,9 @@ def main():
 
 
 if __name__ == '__main__':
+    import ida_auto
 
-    main()
+    if not ida_auto.auto_is_ok():
+        warning("Wait for autoanalysis to finish before launching findrpc")
+    else:
+        main()
