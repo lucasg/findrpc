@@ -10,7 +10,7 @@ NB : wait for the autoanalysis to finish before running the script.
 
 
 
-The script rely on the same heuristic as James Forshaw's [https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373](`FindRpcServerInterfaces`) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" relationships between RPC structures  (e.g. in the case of a proxy definition).
+The script rely on the same heuristic as James Forshaw's [`FindRpcServerInterfaces`](https://github.com/googleprojectzero/sandbox-attacksurface-analysis-tools/blob/master/NtApiDotNet/Win32/RpcServer.cs#L373) but is a bit more powerful since it can use IDA's xrefs system to uncover "non-obvious" relationships between RPC structures  (e.g. in the case of a proxy definition).
 
 Unlike `RpcView` or `NtApiDotNet`  `findrpc.py` also return the RPC clients embbeded in the binary, which may or may not be of use when reversing.  
 
