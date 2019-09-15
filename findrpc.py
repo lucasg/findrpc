@@ -1,12 +1,14 @@
+import binascii
 import ctypes
-import binascii 
-import struct
-import logging
-import json
 import inspect
+import json
+import logging
+import os
+import struct
 from collections import namedtuple
 from ctypes import Array, Structure, Union, _Pointer, _SimpleCData
 from json import JSONEncoder
+from warnings import warn
 
 # IDA libraries
 import idaapi
