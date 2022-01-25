@@ -158,7 +158,7 @@ class RpcStructure(ctypes.Structure):
         proc_string_name = "%s_proc_string" % cls.get_c_instance_name(name)
         proc_string_pointer  = "&%s" % proc_string_name
 
-        raw_buffer = [ord(x) for x in ida_bytes.get_many_bytes(proc_string_ea, bytes_read)]
+        raw_buffer = [ord(x) for x in ida_bytes.get_bytes(proc_string_ea, bytes_read)]
 
         ps_instance = "static const unsigned char {name:s}[] = {{{values:s}}};".format(
             name =  proc_string_name,
@@ -189,11 +189,11 @@ class GUID(RpcStructure):
                 self.Data1, 
                 self.Data2, 
                 self.Data3, 
-                b"".join("%02x" % x for x in self.Data4)
+                "".join("%02x" % x for x in self.Data4)
         )
 
     def gen_c_struct(self):
-        return "{0x%x, 0x%x, 0x%x, %s}" % (
+        return "{0x%08x, 0x%04x, 0x%04x, %s}" % (
             self.Data1, 
             self.Data2, 
             self.Data3, 
@@ -896,7 +896,7 @@ class RpcResultsForm( idaapi.PluginForm ):
         Initial column redimensionning based on "hints" (sample values)
         """
 
-        for i in xrange(len(self._model.__class__.SAMPLE_CONTENTS)):
+        for i in range(len(self._model.__class__.SAMPLE_CONTENTS)):
             sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
             header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
 
@@ -978,7 +978,7 @@ class RpcResultsForm( idaapi.PluginForm ):
 
             
             if action == self._action_apply_type:
-                success = MakeStructEx(result.address, -1, result.type)
+                success = idc.create_struct(result.address, -1, result.type)
                 print("[findrpc] Applying type %s at address 0x%x : %s" % (result.type, result.address, ("KO", "OK")[success]))
                 if not success:
                     warning("Could not apply type via idapython. Do it by hand instead (Alt+Q > %s)" % result.type)
@@ -1240,7 +1240,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
         Initial column redimensionning based on "hints" (sample values)
         """
 
-        for i in xrange(len(self._model.__class__.SAMPLE_CONTENTS)):
+        for i in range(len(self._model.__class__.SAMPLE_CONTENTS)):
             sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
             header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
 
@@ -1309,11 +1309,11 @@ class FindRpcResultsForm( idaapi.PluginForm ):
 
             if action == self._action_generate_stub:
 
-                file_basename = idc.AskStr("%s_%s" % (file_basename, result.IID), '[1/2] Enter stub name:')
+                file_basename = ida_kernwin.ask_str("%s_%s" % (file_basename, result.IID), 0, '[1/2] Enter stub name:')
                 if not file_basename:
                     return
 
-                directory = idc.AskStr(directory, '[2/2] Enter export directory:')
+                directory = ida_kernwin.ask_str(directory, 0 , '[2/2] Enter export directory:')
                 if not directory:
                     return
 
@@ -1821,7 +1821,7 @@ def get_data_sections():
     Return all non-executable data section in the binary
     """
 
-    for n in xrange(get_segm_qty()):
+    for n in range(get_segm_qty()):
         seg = getnseg(n)
 
         if not seg: 
@@ -1863,7 +1863,7 @@ def read_ctypes_structure(address, ctypes_structure):
     ctypes_object = ctypes_structure()
     structure_size = ctypes.sizeof(ctypes_object)
 
-    raw_buffer = idaapi.get_many_bytes(address, structure_size)
+    raw_buffer = ida_bytes.get_bytes(address, structure_size)
     ctypes.memmove(ctypes.addressof(ctypes_object), raw_buffer, structure_size)
 
     return ctypes_object
@@ -1898,9 +1898,9 @@ def get_structure_name_at_address(address):
     """
     
     ti = idaapi.opinfo_t()
-    flags = idc.GetFlags(address)
+    flags = ida_bytes.get_full_flags(address)
     
-    if not idaapi.get_opinfo(address, 0, flags, ti):
+    if not idaapi.get_opinfo(ti, address, 0, flags):
         return None
     
     return idaapi.get_struc_name(ti.tid)
@@ -2158,14 +2158,14 @@ class FindRpc(object):
         rpc_server_interface_marker = "%02X" % ctypes.sizeof(RPC_SERVER_INTERFACE)
 
         for seg in get_data_sections():
-            logging.debug ("[findrpc] scanning [%x - %x] %s" % (seg.startEA, seg.endEA, idaapi.get_segm_name(seg)))
+            logging.debug ("[findrpc] scanning [%x - %x] %s" % (seg.start_ea, seg.end_ea, idaapi.get_segm_name(seg)))
 
-            ea = seg.startEA
+            ea = seg.start_ea
             nea = ea
             while True:
 
-                ea = FindBinary(nea, SEARCH_DOWN, rpc_server_interface_marker)
-                if (ea == idaapi.BADADDR) or (ea > seg.endEA):
+                ea = idc.find_binary(nea, SEARCH_DOWN, rpc_server_interface_marker)
+                if (ea == idaapi.BADADDR) or (ea > seg.end_ea):
                     break
 
                 nea = ea + POINTER_SIZE
@@ -2206,13 +2206,13 @@ def preload_standard_rpc_structures():
     Preload windows types that will be applied on detected structures.
     """
 
-    Til2Idb(-1, TYPE_RPC_SERVER_INTERFACE)
-    Til2Idb(-1, TYPE_MIDL_STUB_DESC)
-    Til2Idb(-1, TYPE_MIDL_SYNTAX_INFO)
-    Til2Idb(-1, TYPE_MIDL_SERVER_INFO)
-    Til2Idb(-1, TYPE_MIDL_STUBLESS_PROXY_INFO)
-    Til2Idb(-1, TYPE_RPC_SYNTAX_IDENTIFIER)
-    Til2Idb(-1, TYPE_RPC_DISPATCH_TABLE)
+    idc.import_type(-1, TYPE_RPC_SERVER_INTERFACE)
+    idc.import_type(-1, TYPE_MIDL_STUB_DESC)
+    idc.import_type(-1, TYPE_MIDL_SYNTAX_INFO)
+    idc.import_type(-1, TYPE_MIDL_SERVER_INFO)
+    idc.import_type(-1, TYPE_MIDL_STUBLESS_PROXY_INFO)
+    idc.import_type(-1, TYPE_RPC_SYNTAX_IDENTIFIER)
+    idc.import_type(-1, TYPE_RPC_DISPATCH_TABLE)
 
 
 def check_isa_is_intel():
