@@ -900,7 +900,7 @@ class RpcResultsForm( idaapi.PluginForm ):
             sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
             header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
 
-            self._table.setColumnWidth(i, max(header_width, sample_width))
+            self._table.setColumnWidth(i, int(max(header_width, sample_width)))
 
     def _ui_entry_double_click(self, index):
         """
@@ -1244,7 +1244,7 @@ class FindRpcResultsForm( idaapi.PluginForm ):
             sample_width = self._font_metrics.boundingRect(self._model.__class__.SAMPLE_CONTENTS[i]).width()
             header_width = self._font_metrics.boundingRect(self._model._column_headers[i]).width()
 
-            self._table.setColumnWidth(i, max(header_width, sample_width))
+            self._table.setColumnWidth(i, int(max(header_width, sample_width)))
 
 
     def _ui_ctx_menu_handler(self, position):
